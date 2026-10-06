@@ -1,69 +1,85 @@
-import Image from "next/image";
+import Link from 'next/link'
+import { Film, Mic, FileText, ArrowRight } from 'lucide-react'
 
 export default function Home() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
+    <div className="flex min-h-screen flex-col bg-background selection:bg-primary/20">
+      <header className="sticky top-0 z-50 flex h-16 w-full items-center justify-between border-b border-border/50 bg-background/80 px-6 backdrop-blur-md">
+        <div className="flex items-center gap-2 font-semibold text-foreground">
+          <Film className="h-5 w-5 text-primary" />
+          <span>DP VoiceScript</span>
+        </div>
+        <nav className="flex items-center gap-4">
+          <Link href="/login" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+            Sign In
+          </Link>
+          <Link 
+            href="/login" 
+            className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90"
+          >
+            Get Started
+          </Link>
+        </nav>
+      </header>
+
+      <main className="flex-1">
+        <section className="flex flex-col items-center justify-center space-y-8 px-4 py-32 text-center md:py-48">
+          <div className="inline-flex items-center rounded-full border border-primary/20 bg-primary/5 px-3 py-1 text-sm font-medium text-primary">
+            ✨ Malayalam Voice-to-Screenplay Studio
+          </div>
+          <h1 className="max-w-3xl text-4xl font-bold tracking-tight text-foreground sm:text-6xl">
+            Speak your vision. <br />
+            <span className="text-muted-foreground">We write the script.</span>
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+          <p className="max-w-2xl text-lg text-muted-foreground sm:text-xl">
+            A professional cinematic writing studio that converts spoken Malayalam into perfectly formatted film scripts, synchronized directly with Google Docs.
           </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+          <div className="flex flex-col gap-4 sm:flex-row">
+            <Link 
+              href="/login" 
+              className="inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-primary px-8 text-base font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90"
+            >
+              Start Recording <Mic className="h-4 w-4" />
+            </Link>
+          </div>
+        </section>
+
+        <section className="border-t border-border bg-card/50 px-6 py-24">
+          <div className="mx-auto grid max-w-5xl gap-12 sm:grid-cols-3">
+            <div className="flex flex-col items-center space-y-4 text-center">
+              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                <Mic className="h-8 w-8" />
+              </div>
+              <h3 className="text-xl font-semibold">Speak Naturally</h3>
+              <p className="text-muted-foreground">
+                Dictate in Malayalam or mixed Malayalam-English. Our AI understands your accent and intent.
+              </p>
+            </div>
+            <div className="flex flex-col items-center space-y-4 text-center">
+              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                <FileText className="h-8 w-8" />
+              </div>
+              <h3 className="text-xl font-semibold">Perfect Formatting</h3>
+              <p className="text-muted-foreground">
+                Automatically formats scenes, action, and dialogue to industry standards without rewriting your story.
+              </p>
+            </div>
+            <div className="flex flex-col items-center space-y-4 text-center">
+              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                <svg className="h-8 w-8" viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
+              </div>
+              <h3 className="text-xl font-semibold">Live Google Docs Sync</h3>
+              <p className="text-muted-foreground">
+                Every word you say is processed and synced to a Google Doc in real-time. Full backup and export ready.
+              </p>
+            </div>
+          </div>
+        </section>
       </main>
+
+      <footer className="border-t border-border py-6 text-center text-sm text-muted-foreground">
+        <p>DP AI Studios | Define Perspective</p>
+      </footer>
     </div>
-  );
+  )
 }
