@@ -17,7 +17,7 @@ export function getGoogleOAuthClient() {
   )
 }
 
-export function getGoogleAuthUrl() {
+export function getGoogleAuthUrl(state?: string) {
   const oauth2Client = getGoogleOAuthClient()
 
   // Generate a url that asks permissions for Google Docs and Drive
@@ -31,6 +31,7 @@ export function getGoogleAuthUrl() {
     access_type: 'offline',
     prompt: 'consent', // Force consent to ensure refresh token is provided
     scope: scopes,
+    state: state || undefined,
   })
 }
 

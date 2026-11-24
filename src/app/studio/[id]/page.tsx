@@ -31,11 +31,11 @@ export default async function StudioPage({ params }: { params: Promise<{ id: str
   // Fetch google integration status
   const { data: integration } = await supabase
     .from('google_integrations')
-    .select('id')
+    .select('id, status')
     .eq('user_id', user.id)
     .single()
     
-  const hasGoogleAuth = !!integration
+  const hasGoogleAuth = !!integration && integration.status !== 'expired'
 
   // Fetch the latest script revision to load saved blocks
   const { data: latestRevision } = await supabase
@@ -67,18 +67,27 @@ export default async function StudioPage({ params }: { params: Promise<{ id: str
         
         <div className="flex items-center gap-2">
           {project.google_doc_id ? (
-            <Link 
-              href={project.google_doc_url || '#'} 
-              target="_blank"
-              className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium text-blue-600 transition-colors hover:bg-muted dark:text-blue-400"
-            >
-              <FileText size={14} /> Open in Docs
-            </Link>
+            <>
+              <Link 
+                href={project.google_doc_url || '#'} 
+                target="_blank"
+                className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium text-blue-600 transition-colors hover:bg-muted dark:text-blue-400"
+              >
+                <FileText size={14} /> Open in Docs
+              </Link>
+              <Link 
+                href={`/api/google/connect?return_to=/studio/${project.id}`}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                title="Reconnect Google Docs account"
+              >
+                Reconnect
+              </Link>
+            </>
           ) : hasGoogleAuth ? (
             <CreateDocButton projectId={project.id} />
           ) : (
             <Link 
-              href="/api/google/connect"
+              href={`/api/google/connect?return_to=/studio/${project.id}`}
               className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted"
             >
               <FileText size={14} /> Connect Docs

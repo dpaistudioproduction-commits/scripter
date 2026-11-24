@@ -16,10 +16,17 @@ export default function CreateDocButton({ projectId }: { projectId: string }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ projectId })
       })
+      const data = await res.json()
       if (res.ok) {
         router.refresh()
       } else {
-        alert('Failed to create Google Doc')
+        if (data.code === 'TOKEN_EXPIRED') {
+          if (confirm('Google Docs authorization expired. Would you like to reconnect now?')) {
+            window.location.href = `/api/google/connect?return_to=/studio/${projectId}`
+          }
+        } else {
+          alert(data.error || 'Failed to create Google Doc')
+        }
       }
     } catch (e) {
       console.error(e)

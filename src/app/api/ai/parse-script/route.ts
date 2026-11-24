@@ -4,7 +4,12 @@ import { createClient } from '@/utils/supabase/server'
 
 export async function POST(req: Request) {
   try {
-    const { text } = await req.json()
+    const { text, language = 'malayalam' } = await req.json()
+    const lang = language === 'kannada' ? 'Kannada' : 'Malayalam'
+    const sceneWord = language === 'kannada' ? 'ದೃಶ್ಯ' : 'സീൻ'
+    const example = language === 'kannada'
+      ? '[{ "type": "character", "content": "ರಾಜೇಶ್" }, { "type": "dialogue", "content": "ನೀನು ಅಲ್ಲಿಗೆ ಬರಬೇಡ" }]'
+      : '[{ "type": "character", "content": "രാജേഷ്" }, { "type": "dialogue", "content": "നി അവിടെക്ക് വരരുത്" }]'
     if (!text) return NextResponse.json({ error: 'No text provided' }, { status: 400 })
 
     if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'dummy') {
@@ -29,20 +34,20 @@ export async function POST(req: Request) {
     }
 
     let prompt = `
-You are an elite Malayalam screenwriter and parsing assistant.
-Your task is to meticulously read the raw dictated Malayalam sentence and structure it into a JSON array of screenplay blocks.
+You are an elite ${lang} screenwriter and parsing assistant.
+Your task is to meticulously read the raw dictated ${lang} sentence and structure it into a JSON array of screenplay blocks.
 
 CRITICAL INSTRUCTIONS FOR ACCURACY:
-1. DO NOT guess, hallucinate, or invent words. Extract the dictated text exactly as is.
-2. Use advanced Malayalam vocabulary logic to understand the phonetic context of the sentence to correctly categorize the blocks.
+1. DO NOT guess, hallucinate, or invent words. Extract the dictated text exactly as is, in ${lang} script.
+2. Use advanced ${lang} vocabulary logic to understand the phonetic context of the sentence to correctly categorize the blocks.
 3. Pay attention to context:
-   - "സീൻ" (Scene) or "EXT"/"INT" means 'scene_heading'.
+   - "${sceneWord}" (Scene) or "EXT"/"INT" means 'scene_heading'.
    - A short name immediately followed by spoken words means the name is 'character' and the words are 'dialogue'.
    - Descriptions of actions are 'action'.
 4. Return ONLY a raw JSON array. No markdown, no \`\`\`json wrappers. 
 
 Valid types: "scene_heading", "character", "action", "dialogue", "parenthetical".
-Format: [{ "type": "character", "content": "രാജേഷ്" }, { "type": "dialogue", "content": "നി അവിടെക്ക് വരരുത്" }]
+Format: ${example}
 
 Raw dictation:
 "${text}"
@@ -97,7 +102,8 @@ Raw dictation:
 
     if (!response) {
       if (lastError?.status === 429 || lastError?.message?.includes('429')) {
-        return NextResponse.json({ error: 'AI Quota Exceeded. You have hit the Google AI rate limits for today. Please try again tomorrow or upgrade your API key.' }, { status: 429 })
+        const errorMsg = lastError?.message || 'AI Quota Exceeded. You have hit the Google AI rate limits for today.'
+        return NextResponse.json({ error: errorMsg }, { status: 429 })
       }
       if (lastError?.status === 402 || lastError?.message?.includes('402')) {
         return NextResponse.json({ error: 'Your Google Cloud Project has run out of prepayment billing credits. Please top up your billing account.' }, { status: 402 })

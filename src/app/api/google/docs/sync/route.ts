@@ -21,7 +21,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const { projectId, blocks, newTitle } = await req.json()
+    const { projectId, blocks, newTitle, fullSync } = await req.json()
     
     if (!projectId || !blocks || !Array.isArray(blocks)) {
       return NextResponse.json({ error: 'Missing or invalid payload data' }, { status: 400 })
@@ -30,12 +30,15 @@ export async function POST(req: Request) {
     // 1. Fetch Google Integration details
     const { data: integration } = await supabase
       .from('google_integrations')
-      .select('encrypted_token_reference')
+      .select('encrypted_token_reference, status')
       .eq('user_id', user.id)
       .single()
 
     if (!integration?.encrypted_token_reference) {
-      return NextResponse.json({ error: 'Google Docs not connected' }, { status: 403 })
+      return NextResponse.json({ 
+        error: 'Google Docs not connected. Please connect your Google account.', 
+        code: 'NOT_CONNECTED' 
+      }, { status: 403 })
     }
 
     // 2. Fetch Project Docs Info
@@ -58,8 +61,8 @@ export async function POST(req: Request) {
       .insert({
         project_id: projectId,
         document_id: project.google_doc_id,
-        operation_type: 'batchUpdate',
-        payload: { blocks, newTitle },
+        operation_type: fullSync ? 'fullSync' : 'batchUpdate',
+        payload: { blocks, newTitle, fullSync },
         idempotency_key: idempotencyKey,
         status: 'pending'
       })
@@ -70,157 +73,211 @@ export async function POST(req: Request) {
       throw jobError
     }
 
-    // 4. Execute the update using Google Docs API
-    const docs = getDocsClient(integration.encrypted_token_reference)
-    
-    // Fetch document to get current length for exact styling ranges
-    const docInfo = await docs.documents.get({ documentId: project.google_doc_id })
-    const bodyContent = docInfo.data.body?.content || []
-    let currentIndex = (bodyContent[bodyContent.length - 1]?.endIndex || 2) - 1
-    
-    const requests: any[] = []
-    
-    for (const block of blocks) {
-      const textToInsert = block.content + '\n'
-      const textLength = textToInsert.length
-      
-      requests.push({
-        insertText: {
-          location: { index: currentIndex },
-          text: textToInsert
-        }
-      })
+    // Helper to handle invalid_grant errors
+    const handleGoogleError = async (err: any) => {
+      const errStr = String(err?.message || '') + ' ' + JSON.stringify(err?.response?.data || '')
+      const isInvalidGrant = errStr.includes('invalid_grant') || errStr.includes('invalid_token') || errStr.includes('expired or revoked')
 
-      const baseFields = 'bold,weightedFontFamily,fontSize'
-      const baseTextStyle = {
-        weightedFontFamily: { fontFamily: 'Courier New' },
-        fontSize: { magnitude: 12, unit: 'PT' }
+      if (isInvalidGrant) {
+        await adminSupabase
+          .from('google_integrations')
+          .update({ status: 'expired', updated_at: new Date().toISOString() })
+          .eq('user_id', user.id)
       }
-      
-      if (block.type === 'scene_heading') {
-        requests.push({
-          updateTextStyle: {
-            range: { startIndex: currentIndex, endIndex: currentIndex + textLength },
-            textStyle: { bold: true, ...baseTextStyle },
-            fields: baseFields
-          }
+
+      await adminSupabase
+        .from('document_sync_jobs')
+        .update({ 
+          status: 'failed', 
+          last_error: isInvalidGrant ? 'Google OAuth token expired (invalid_grant)' : err.message,
+          updated_at: new Date().toISOString() 
         })
-        requests.push({
-          updateParagraphStyle: {
-            range: { startIndex: currentIndex, endIndex: currentIndex + textLength },
-            paragraphStyle: { 
-              alignment: 'START',
-              indentStart: { magnitude: 0, unit: 'PT' },
-              indentFirstLine: { magnitude: 0, unit: 'PT' },
-              spaceAbove: { magnitude: 24, unit: 'PT' }, // 2 blank lines before scene
-              spaceBelow: { magnitude: 12, unit: 'PT' }  // 1 blank line after scene
-            },
-            fields: 'alignment,indentStart,indentFirstLine,spaceAbove,spaceBelow'
-          }
-        })
-      } else if (block.type === 'character') {
-        requests.push({
-          updateTextStyle: {
-            range: { startIndex: currentIndex, endIndex: currentIndex + textLength },
-            textStyle: { bold: true, ...baseTextStyle },
-            fields: baseFields
-          }
-        })
-        requests.push({
-          updateParagraphStyle: {
-            range: { startIndex: currentIndex, endIndex: currentIndex + textLength },
-            paragraphStyle: { 
-              alignment: 'START',
-              indentStart: { magnitude: 158, unit: 'PT' }, // ~2.2 inches from margin
-              indentFirstLine: { magnitude: 158, unit: 'PT' },
-              spaceAbove: { magnitude: 12, unit: 'PT' }, // 1 blank line before character
-              spaceBelow: { magnitude: 0, unit: 'PT' }   // 0 blank lines after (dialogue follows immediately)
-            },
-            fields: 'alignment,indentStart,indentFirstLine,spaceAbove,spaceBelow'
-          }
-        })
-      } else if (block.type === 'parenthetical') {
-        requests.push({
-          updateTextStyle: {
-            range: { startIndex: currentIndex, endIndex: currentIndex + textLength },
-            textStyle: { bold: false, ...baseTextStyle },
-            fields: baseFields
-          }
-        })
-        requests.push({
-          updateParagraphStyle: {
-            range: { startIndex: currentIndex, endIndex: currentIndex + textLength },
-            paragraphStyle: { 
-              alignment: 'START',
-              indentStart: { magnitude: 115, unit: 'PT' }, // ~1.6 inches from margin
-              indentFirstLine: { magnitude: 115, unit: 'PT' },
-              indentEnd: { magnitude: 144, unit: 'PT' },
-              spaceAbove: { magnitude: 0, unit: 'PT' },
-              spaceBelow: { magnitude: 0, unit: 'PT' }
-            },
-            fields: 'alignment,indentStart,indentFirstLine,indentEnd,spaceAbove,spaceBelow'
-          }
-        })
-      } else if (block.type === 'action') {
-        requests.push({
-          updateTextStyle: {
-            range: { startIndex: currentIndex, endIndex: currentIndex + textLength },
-            textStyle: { bold: false, ...baseTextStyle },
-            fields: baseFields
-          }
-        })
-        requests.push({
-          updateParagraphStyle: {
-            range: { startIndex: currentIndex, endIndex: currentIndex + textLength },
-            paragraphStyle: { 
-              alignment: 'START',
-              indentStart: { magnitude: 0, unit: 'PT' }, // 0 inches
-              indentFirstLine: { magnitude: 0, unit: 'PT' },
-              spaceAbove: { magnitude: 12, unit: 'PT' }, // 1 blank line before action
-              spaceBelow: { magnitude: 12, unit: 'PT' }  // 1 blank line after action
-            },
-            fields: 'alignment,indentStart,indentFirstLine,spaceAbove,spaceBelow'
-          }
-        })
-      } else {
-        // Dialogue
-        requests.push({
-          updateParagraphStyle: {
-            range: { startIndex: currentIndex, endIndex: currentIndex + textLength },
-            paragraphStyle: { 
-              alignment: 'START',
-              indentStart: { magnitude: 72, unit: 'PT' }, // 1 inch from left margin
-              indentFirstLine: { magnitude: 72, unit: 'PT' },
-              indentEnd: { magnitude: 108, unit: 'PT' },  // 1.5 inch from right margin
-              spaceAbove: { magnitude: 0, unit: 'PT' },   // Dialogue usually tightly follows Character or Parenthetical
-              spaceBelow: { magnitude: 12, unit: 'PT' }   // 1 blank line after dialogue
-            },
-            fields: 'alignment,indentStart,indentFirstLine,indentEnd,spaceAbove,spaceBelow'
-          }
-        })
-        requests.push({
-          updateTextStyle: {
-            range: { startIndex: currentIndex, endIndex: currentIndex + textLength },
-            textStyle: { bold: false, ...baseTextStyle },
-            fields: baseFields
-          }
-        })
+        .eq('id', job.id)
+
+      if (isInvalidGrant) {
+        return NextResponse.json({ 
+          error: 'Google Docs authorization has expired. Please reconnect your Google account.', 
+          code: 'TOKEN_EXPIRED' 
+        }, { status: 401 })
       }
-      
-      currentIndex += textLength
+
+      return NextResponse.json({ 
+        error: 'Sync failed: ' + (err.message || 'Google API error'), 
+        details: err.message 
+      }, { status: 502 })
     }
 
     try {
-      // Append text
-      await docs.documents.batchUpdate({
-        documentId: project.google_doc_id,
-        requestBody: { requests }
-      })
+      // 4. Execute the update using Google Docs API
+      const docs = getDocsClient(integration.encrypted_token_reference)
+      
+      // Fetch document to get current length for exact styling ranges
+      const docInfo = await docs.documents.get({ documentId: project.google_doc_id })
+      const bodyContent = docInfo.data.body?.content || []
+      const docEndIndex = bodyContent[bodyContent.length - 1]?.endIndex || 2
+
+      // If fullSync is requested, clear existing document body first
+      if (fullSync && docEndIndex > 2) {
+        await docs.documents.batchUpdate({
+          documentId: project.google_doc_id,
+          requestBody: {
+            requests: [
+              {
+                deleteContentRange: {
+                  range: {
+                    startIndex: 1,
+                    endIndex: docEndIndex - 1
+                  }
+                }
+              }
+            ]
+          }
+        })
+      }
+
+      let currentIndex = fullSync ? 1 : (docEndIndex - 1)
+      const requests: any[] = []
+      
+      for (const block of blocks) {
+        const textToInsert = block.content + '\n'
+        const textLength = textToInsert.length
+        
+        requests.push({
+          insertText: {
+            location: { index: currentIndex },
+            text: textToInsert
+          }
+        })
+
+        const baseFields = 'bold,weightedFontFamily,fontSize'
+        const baseTextStyle = {
+          weightedFontFamily: { fontFamily: 'Courier New' },
+          fontSize: { magnitude: 12, unit: 'PT' }
+        }
+        
+        if (block.type === 'scene_heading') {
+          requests.push({
+            updateTextStyle: {
+              range: { startIndex: currentIndex, endIndex: currentIndex + textLength },
+              textStyle: { bold: true, ...baseTextStyle },
+              fields: baseFields
+            }
+          })
+          requests.push({
+            updateParagraphStyle: {
+              range: { startIndex: currentIndex, endIndex: currentIndex + textLength },
+              paragraphStyle: { 
+                alignment: 'START',
+                indentStart: { magnitude: 0, unit: 'PT' },
+                indentFirstLine: { magnitude: 0, unit: 'PT' },
+                spaceAbove: { magnitude: 24, unit: 'PT' },
+                spaceBelow: { magnitude: 12, unit: 'PT' }
+              },
+              fields: 'alignment,indentStart,indentFirstLine,spaceAbove,spaceBelow'
+            }
+          })
+        } else if (block.type === 'character') {
+          requests.push({
+            updateTextStyle: {
+              range: { startIndex: currentIndex, endIndex: currentIndex + textLength },
+              textStyle: { bold: true, ...baseTextStyle },
+              fields: baseFields
+            }
+          })
+          requests.push({
+            updateParagraphStyle: {
+              range: { startIndex: currentIndex, endIndex: currentIndex + textLength },
+              paragraphStyle: { 
+                alignment: 'START',
+                indentStart: { magnitude: 158, unit: 'PT' },
+                indentFirstLine: { magnitude: 158, unit: 'PT' },
+                spaceAbove: { magnitude: 12, unit: 'PT' },
+                spaceBelow: { magnitude: 0, unit: 'PT' }
+              },
+              fields: 'alignment,indentStart,indentFirstLine,spaceAbove,spaceBelow'
+            }
+          })
+        } else if (block.type === 'parenthetical') {
+          requests.push({
+            updateTextStyle: {
+              range: { startIndex: currentIndex, endIndex: currentIndex + textLength },
+              textStyle: { bold: false, ...baseTextStyle },
+              fields: baseFields
+            }
+          })
+          requests.push({
+            updateParagraphStyle: {
+              range: { startIndex: currentIndex, endIndex: currentIndex + textLength },
+              paragraphStyle: { 
+                alignment: 'START',
+                indentStart: { magnitude: 115, unit: 'PT' },
+                indentFirstLine: { magnitude: 115, unit: 'PT' },
+                indentEnd: { magnitude: 144, unit: 'PT' },
+                spaceAbove: { magnitude: 0, unit: 'PT' },
+                spaceBelow: { magnitude: 0, unit: 'PT' }
+              },
+              fields: 'alignment,indentStart,indentFirstLine,indentEnd,spaceAbove,spaceBelow'
+            }
+          })
+        } else if (block.type === 'action') {
+          requests.push({
+            updateTextStyle: {
+              range: { startIndex: currentIndex, endIndex: currentIndex + textLength },
+              textStyle: { bold: false, ...baseTextStyle },
+              fields: baseFields
+            }
+          })
+          requests.push({
+            updateParagraphStyle: {
+              range: { startIndex: currentIndex, endIndex: currentIndex + textLength },
+              paragraphStyle: { 
+                alignment: 'START',
+                indentStart: { magnitude: 0, unit: 'PT' },
+                indentFirstLine: { magnitude: 0, unit: 'PT' },
+                spaceAbove: { magnitude: 12, unit: 'PT' },
+                spaceBelow: { magnitude: 12, unit: 'PT' }
+              },
+              fields: 'alignment,indentStart,indentFirstLine,spaceAbove,spaceBelow'
+            }
+          })
+        } else {
+          // Dialogue
+          requests.push({
+            updateParagraphStyle: {
+              range: { startIndex: currentIndex, endIndex: currentIndex + textLength },
+              paragraphStyle: { 
+                alignment: 'START',
+                indentStart: { magnitude: 72, unit: 'PT' },
+                indentFirstLine: { magnitude: 72, unit: 'PT' },
+                indentEnd: { magnitude: 108, unit: 'PT' },
+                spaceAbove: { magnitude: 0, unit: 'PT' },
+                spaceBelow: { magnitude: 12, unit: 'PT' }
+              },
+              fields: 'alignment,indentStart,indentFirstLine,indentEnd,spaceAbove,spaceBelow'
+            }
+          })
+          requests.push({
+            updateTextStyle: {
+              range: { startIndex: currentIndex, endIndex: currentIndex + textLength },
+              textStyle: { bold: false, ...baseTextStyle },
+              fields: baseFields
+            }
+          })
+        }
+        
+        currentIndex += textLength
+      }
+
+      if (requests.length > 0) {
+        await docs.documents.batchUpdate({
+          documentId: project.google_doc_id,
+          requestBody: { requests }
+        })
+      }
 
       // Update Document Title if newTitle is provided
       if (newTitle) {
         const drive = getDriveClient(integration.encrypted_token_reference)
-        
         await drive.files.update({
           fileId: project.google_doc_id,
           requestBody: { name: newTitle }
@@ -236,16 +293,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true, message: 'Successfully synced to Google Docs' })
     } catch (syncError: any) {
       console.error('Google Docs Sync API Error:', syncError)
-      await adminSupabase
-        .from('document_sync_jobs')
-        .update({ 
-          status: 'failed', 
-          last_error: syncError.message,
-          updated_at: new Date().toISOString() 
-        })
-        .eq('id', job.id)
-        
-      return NextResponse.json({ error: 'Sync failed, queued for retry', details: syncError.message }, { status: 502 })
+      return handleGoogleError(syncError)
     }
   } catch (err: any) {
     console.error('Error syncing to Google Docs:', err)

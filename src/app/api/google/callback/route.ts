@@ -5,9 +5,18 @@ import { exchangeCodeForTokens } from '@/utils/google'
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url)
   const code = searchParams.get('code')
+  const state = searchParams.get('state')
+  
+  const redirectTarget = (pathAndQuery: string) => {
+    if (state && state.startsWith('/')) {
+      const sep = state.includes('?') ? '&' : '?'
+      return `${origin}${state}${sep}${pathAndQuery}`
+    }
+    return `${origin}/dashboard?${pathAndQuery}`
+  }
   
   if (!code) {
-    return NextResponse.redirect(`${origin}/dashboard?error=OAuth_Code_Missing`)
+    return NextResponse.redirect(redirectTarget('error=OAuth_Code_Missing'))
   }
 
   const supabase = await createClient()
@@ -25,36 +34,41 @@ export async function GET(request: Request) {
     const tokens = await exchangeCodeForTokens(code)
 
     if (!tokens.refresh_token) {
-      // If we don't get a refresh token, the user might have already granted access previously.
-      // We need to force them to revoke and re-grant, or handle this gracefully.
-      console.warn('No refresh token received. User may need to revoke access first.')
-      // Proceeding with what we have, but ideally we should prompt re-consent.
-      return NextResponse.redirect(`${origin}/settings?error=No_Refresh_Token`)
+      // Check if user already has an existing refresh token in db
+      const { data: existing } = await supabase
+        .from('google_integrations')
+        .select('encrypted_token_reference')
+        .eq('user_id', user.id)
+        .single()
+
+      if (!existing?.encrypted_token_reference) {
+        console.warn('No refresh token received and none existing.')
+        return NextResponse.redirect(redirectTarget('error=No_Refresh_Token'))
+      }
     }
 
-    // In a real production app, the refresh token MUST be encrypted before saving to DB.
-    // For this implementation, we rely on Supabase RLS and SSL, but encryption at rest (e.g., pg_sodium) is highly recommended.
+    const updatePayload: any = {
+      user_id: user.id,
+      scopes: tokens.scope?.split(' ') || [],
+      status: 'active',
+      updated_at: new Date().toISOString()
+    }
+    if (tokens.refresh_token) {
+      updatePayload.encrypted_token_reference = tokens.refresh_token
+    }
+
     const { error } = await supabase
       .from('google_integrations')
-      .upsert(
-        {
-          user_id: user.id,
-          encrypted_token_reference: tokens.refresh_token, // TODO: encrypt this string
-          scopes: tokens.scope?.split(' ') || [],
-          status: 'active',
-          updated_at: new Date().toISOString()
-        },
-        { onConflict: 'user_id' }
-      )
+      .upsert(updatePayload, { onConflict: 'user_id' })
 
     if (error) {
       console.error('Error saving Google Integration:', error)
-      return NextResponse.redirect(`${origin}/dashboard?error=Database_Save_Failed`)
+      return NextResponse.redirect(redirectTarget('error=Database_Save_Failed'))
     }
 
-    return NextResponse.redirect(`${origin}/dashboard?success=Google_Connected`)
+    return NextResponse.redirect(redirectTarget('success=Google_Connected'))
   } catch (error: any) {
     console.error('Error in Google OAuth callback:', error)
-    return NextResponse.redirect(`${origin}/dashboard?error=OAuth_Exchange_Failed`)
+    return NextResponse.redirect(redirectTarget('error=OAuth_Exchange_Failed'))
   }
 }

@@ -4,7 +4,11 @@ import { createClient } from '@/utils/supabase/server'
 
 export async function POST(req: Request) {
   try {
-    const { imageBase64 } = await req.json()
+    const { imageBase64, mimeType = 'image/jpeg', language = 'malayalam' } = await req.json()
+    const lang = language === 'kannada' ? 'Kannada' : 'Malayalam'
+    const sceneWord = language === 'kannada' ? 'ದೃಶ್ಯ' : 'സീൻ'
+    const exampleLine = language === 'kannada' ? 'ಅವರು ನಡೆದು ಬರುತ್ತಾರೆ.' : 'അവർ നടന്നു വരുന്നു.'
+    const isPdf = mimeType === 'application/pdf'
     const apiKey = process.env.GEMINI_API_KEY
     if (!apiKey || apiKey === 'dummy') {
       return NextResponse.json({ error: 'GEMINI_API_KEY is missing' }, { status: 400 })
@@ -28,23 +32,23 @@ export async function POST(req: Request) {
     }
 
     let prompt = `
-You are an elite Malayalam screenwriter and the world's best OCR assistant. 
-Your task is to meticulously read the provided image of a handwritten Malayalam screenplay page and transcribe it EXACTLY as written, structuring it into a JSON array of screenplay blocks.
+You are an elite ${lang} screenwriter and the world's best OCR assistant. 
+Your task is to meticulously read the provided image of a handwritten ${lang} screenplay page and transcribe it EXACTLY as written (in ${lang} script), structuring it into a JSON array of screenplay blocks.
 
 CRITICAL INSTRUCTIONS FOR ACCURACY:
 1. DO NOT guess, hallucinate, or invent words. Transcribe exactly what you see.
-2. If a word is messy or cursive, use advanced Malayalam vocabulary logic and the context of the sentence to deduce the correct spelling of the exact word written.
+2. If a word is messy or cursive, use advanced ${lang} vocabulary logic and the context of the sentence to deduce the correct spelling of the exact word written.
 3. Ignore scribbles, crossed-out words, and page numbers.
 4. Pay attention to spatial layout:
    - Centered text with a single short name is usually a 'character'.
    - Text directly below a character is 'dialogue'.
    - Left-aligned text describing what happens is 'action'.
-   - ALL CAPS english words like "INT." or "EXT." or Malayalam words like "സീൻ" signify a 'scene_heading'.
+   - ALL CAPS english words like "INT." or "EXT." or ${lang} words like "${sceneWord}" signify a 'scene_heading'.
 5. Return ONLY a raw JSON array. No markdown, no \`\`\`json wrappers. 
 
 Valid types: "scene_heading", "character", "action", "dialogue", "parenthetical".
-Format: [{ "type": "action", "content": "അവർ നടന്നു വരുന്നു." }]
-` + dictionaryText
+Format: [{ "type": "action", "content": "${exampleLine}" }]
+` + dictionaryText + (isPdf ? `\n\nNOTE: The input is a PDF document (possibly multiple pages, typed or handwritten). Transcribe ALL pages in order into a single JSON array.` : '')
 
     const modelsToTry = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-2.5-pro', 'gemini-2.5-flash']
     let response
@@ -70,7 +74,7 @@ Format: [{ "type": "action", "content": "അവർ നടന്നു വരു�
                 {
                   inlineData: {
                     data: imageBase64,
-                    mimeType: "image/jpeg" 
+                    mimeType
                   }
                 }
               ]
@@ -101,7 +105,8 @@ Format: [{ "type": "action", "content": "അവർ നടന്നു വരു�
 
     if (!response) {
       if (lastError?.status === 429 || lastError?.message?.includes('429')) {
-        return NextResponse.json({ error: 'AI Quota Exceeded. You have hit the Google AI rate limits for today. Please try again tomorrow or upgrade your API key.' }, { status: 429 })
+        const errorMsg = lastError?.message || 'AI Quota Exceeded. You have hit the Google AI rate limits for today.'
+        return NextResponse.json({ error: errorMsg }, { status: 429 })
       }
       if (lastError?.status === 402 || lastError?.message?.includes('402')) {
         return NextResponse.json({ error: 'Your Google Cloud Project has run out of prepayment billing credits. Please top up your billing account.' }, { status: 402 })

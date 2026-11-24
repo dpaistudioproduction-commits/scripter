@@ -81,6 +81,21 @@ export async function POST(request: Request) {
     })
   } catch (error: any) {
     console.error('Error creating Google Doc:', error)
-    return NextResponse.json({ error: 'Failed to create Google Doc' }, { status: 500 })
+    const errStr = String(error?.message || '') + ' ' + JSON.stringify(error?.response?.data || '')
+    const isInvalidGrant = errStr.includes('invalid_grant') || errStr.includes('invalid_token') || errStr.includes('expired or revoked')
+
+    if (isInvalidGrant) {
+      await supabase
+        .from('google_integrations')
+        .update({ status: 'expired', updated_at: new Date().toISOString() })
+        .eq('user_id', user.id)
+
+      return NextResponse.json({ 
+        error: 'Google Docs authorization has expired. Please reconnect your Google account.', 
+        code: 'TOKEN_EXPIRED' 
+      }, { status: 401 })
+    }
+
+    return NextResponse.json({ error: error.message || 'Failed to create Google Doc' }, { status: 500 })
   }
 }

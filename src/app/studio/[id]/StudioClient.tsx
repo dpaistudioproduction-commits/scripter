@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { Mic, Square, Save, Play, CheckCircle2, AlertCircle, Loader2, Edit2, Trash2, Download, Image as ImageIcon, Book, X } from 'lucide-react'
+import { Mic, Square, Save, Play, CheckCircle2, AlertCircle, Loader2, Edit2, Trash2, Download, Image as ImageIcon, Book, X, FileText, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import AudioVisualizer from './AudioVisualizer'
 
@@ -23,6 +23,49 @@ export default function StudioClient({ project, initialBlocks = [] }: StudioClie
   const [activeSceneIndex, setActiveSceneIndex] = useState<number | null>(null)
   const [aiDictionary, setAiDictionary] = useState<any[]>([])
   const [showDictionaryModal, setShowDictionaryModal] = useState(false)
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error' | 'token_expired'>('idle')
+  const [syncErrorMessage, setSyncErrorMessage] = useState<string>('')
+  const [lastSyncedTime, setLastSyncedTime] = useState<string | null>(null)
+  const [language, setLanguage] = useState<'malayalam' | 'kannada'>('malayalam')
+  const [isTranslating, setIsTranslating] = useState(false)
+  const languageRef = useRef<'malayalam' | 'kannada'>('malayalam')
+  useEffect(() => {
+    const saved = localStorage.getItem('scripter_language')
+    if (saved === 'kannada' || saved === 'malayalam') setLanguage(saved)
+  }, [])
+  useEffect(() => {
+    languageRef.current = language
+    localStorage.setItem('scripter_language', language)
+  }, [language])
+
+  const translateScript = async () => {
+    if (screenplayBlocks.length === 0) return alert('Nothing to translate yet.')
+    const from = language
+    const to = language === 'malayalam' ? 'kannada' : 'malayalam'
+    const toLabel = to === 'kannada' ? 'Kannada' : 'Malayalam'
+    if (!confirm(`Translate the entire script to ${toLabel}? The editor content will be replaced (click Save afterwards to keep it).`)) return
+    setIsTranslating(true)
+    try {
+      const translated: any[] = []
+      const CHUNK = 60
+      for (let i = 0; i < screenplayBlocks.length; i += CHUNK) {
+        const res = await fetch('/api/ai/translate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ blocks: screenplayBlocks.slice(i, i + CHUNK), from, to })
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error || 'Translation failed')
+        translated.push(...data.blocks)
+      }
+      setScreenplayBlocks(translated)
+      setLanguage(to)
+    } catch (e: any) {
+      alert('Translation failed: ' + e.message)
+    } finally {
+      setIsTranslating(false)
+    }
+  }
   const recognitionRef = useRef<any>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -52,7 +95,7 @@ export default function StudioClient({ project, initialBlocks = [] }: StudioClie
         const recognition = new SpeechRecognition()
         recognition.continuous = true
         recognition.interimResults = true
-        recognition.lang = 'ml-IN' // Malayalam
+        recognition.lang = languageRef.current === 'kannada' ? 'kn-IN' : 'ml-IN'
 
         recognition.onresult = (event: any) => {
           let finalTranscript = ''
@@ -76,7 +119,7 @@ export default function StudioClient({ project, initialBlocks = [] }: StudioClie
             fetch('/api/ai/parse-script', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ text })
+              body: JSON.stringify({ text, language: languageRef.current })
             }).then(async (res) => {
               const data = await res.json()
               if (!res.ok) {
@@ -91,6 +134,7 @@ export default function StudioClient({ project, initialBlocks = [] }: StudioClie
                 let newDocTitle = undefined
                 if (
                   text.startsWith('സീൻ') || 
+                  text.startsWith('ದೃಶ್ಯ') || 
                   text.toUpperCase().startsWith('EXT') || 
                   text.toUpperCase().startsWith('INT')
                 ) {
@@ -171,23 +215,42 @@ export default function StudioClient({ project, initialBlocks = [] }: StudioClie
     setInterimText('')
   }
 
-  const syncToGoogleDocs = async (blocksToSync: any[], newTitle?: string) => {
+  const syncToGoogleDocs = async (blocksToSync: any[], newTitle?: string, isFullSync: boolean = false) => {
     if (!project.google_doc_id) {
-      alert("Missing Google Doc! Please click 'Create Google Doc' at the top right first.")
-      return
+      return false
     }
+    setSyncStatus('syncing')
+    setSyncErrorMessage('')
     try {
-      await fetch('/api/google/docs/sync', {
+      const res = await fetch('/api/google/docs/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           projectId: project.id, 
           blocks: blocksToSync,
-          newTitle
+          newTitle,
+          fullSync: isFullSync
         })
       })
-    } catch (e) {
+      const data = await res.json()
+      if (!res.ok) {
+        if (data.code === 'TOKEN_EXPIRED' || res.status === 401 || data.error?.includes('invalid_grant')) {
+          setSyncStatus('token_expired')
+          setSyncErrorMessage('Google account authorization expired. Please reconnect.')
+        } else {
+          setSyncStatus('error')
+          setSyncErrorMessage(data.error || 'Failed to sync to Google Docs')
+        }
+        return false
+      }
+      setSyncStatus('synced')
+      setLastSyncedTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }))
+      return true
+    } catch (e: any) {
       console.error('Error syncing to Docs:', e)
+      setSyncStatus('error')
+      setSyncErrorMessage(e.message || 'Network error syncing to Google Docs')
+      return false
     }
   }
 
@@ -202,6 +265,43 @@ export default function StudioClient({ project, initialBlocks = [] }: StudioClie
       for (let i = 0; i < files.length; i++) {
         const file = files[i]
         setUploadProgress(`Analyzing ${i + 1} of ${files.length}...`)
+
+        if (file.type === 'application/pdf') {
+          if (file.size > 18 * 1024 * 1024) {
+            alert(`"${file.name}" is too large (max ~18MB).`)
+            continue
+          }
+          const base64 = await new Promise<string>((resolve, reject) => {
+            const r = new FileReader()
+            r.onloadend = () => resolve((r.result as string).split(',')[1])
+            r.onerror = reject
+            r.readAsDataURL(file)
+          })
+          try {
+            const res = await fetch('/api/ai/parse-image', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ imageBase64: base64, mimeType: 'application/pdf', language })
+            })
+            const data = await res.json()
+            if (!res.ok) {
+              alert(`Error parsing PDF "${file.name}": ` + (data.error || 'Unknown error'))
+              continue
+            }
+            const parsedBlocks = data.blocks || []
+            if (parsedBlocks.length > 0) {
+              const blocksWithOriginal = parsedBlocks.map((b: any) => ({ ...b, originalContent: b.content }))
+              const sceneBlock = blocksWithOriginal.find((b: any) => b.type === 'scene_heading')
+              if (sceneBlock) document.title = `${sceneBlock.content} - DP AI Studios`
+              setScreenplayBlocks(prev => [...prev, ...blocksWithOriginal])
+              syncToGoogleDocs(blocksWithOriginal, sceneBlock?.content)
+            }
+          } catch (err) {
+            console.error(err)
+            alert(`Failed to process PDF "${file.name}"`)
+          }
+          continue
+        }
         
         await new Promise<void>((resolve, reject) => {
           const reader = new FileReader()
@@ -238,7 +338,7 @@ export default function StudioClient({ project, initialBlocks = [] }: StudioClie
                 const res = await fetch('/api/ai/parse-image', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ imageBase64: base64String })
+                  body: JSON.stringify({ imageBase64: base64String, language })
                 })
                 const data = await res.json()
                 
@@ -295,6 +395,22 @@ export default function StudioClient({ project, initialBlocks = [] }: StudioClie
       <aside className="flex w-64 flex-col bg-muted/20 md:w-80">
         <div className="flex shrink-0 flex-col gap-4 border-b border-border p-4">
           <h2 className="font-semibold">Recording Controls</h2>
+          <div className="flex rounded-md border border-border bg-background p-0.5 text-xs font-medium">
+            {(['malayalam', 'kannada'] as const).map(l => (
+              <button
+                key={l}
+                id={`lang-${l}`}
+                onClick={() => setLanguage(l)}
+                disabled={isRecording}
+                className={cn(
+                  "flex-1 rounded px-2 py-1.5 transition-colors disabled:opacity-50",
+                  language === l ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-muted"
+                )}
+              >
+                {l === 'malayalam' ? 'മലയാളം Malayalam' : 'ಕನ್ನಡ Kannada'}
+              </button>
+            ))}
+          </div>
           <div className="flex flex-col gap-2">
             <div className="flex gap-2">
               {!isRecording ? (
@@ -319,7 +435,7 @@ export default function StudioClient({ project, initialBlocks = [] }: StudioClie
             
             <input 
               type="file" 
-              accept="image/*" 
+              accept="image/*,application/pdf" 
               multiple
               className="hidden" 
               ref={fileInputRef} 
@@ -331,7 +447,7 @@ export default function StudioClient({ project, initialBlocks = [] }: StudioClie
               className="flex w-full items-center justify-center gap-2 rounded-md bg-secondary px-3 py-2 text-sm font-medium text-secondary-foreground transition-colors hover:bg-secondary/80 disabled:opacity-50"
             >
               {isUploading ? <Loader2 size={16} className="animate-spin" /> : <ImageIcon size={16} />}
-              {isUploading ? uploadProgress || 'Analyzing Image...' : 'Upload Page Image'}
+              {isUploading ? uploadProgress || 'Analyzing Image...' : 'Upload Image / PDF'}
             </button>
             <button 
               onClick={() => setShowDictionaryModal(true)}
@@ -424,6 +540,9 @@ export default function StudioClient({ project, initialBlocks = [] }: StudioClie
                     body: JSON.stringify({ projectId: project.id, blocks: screenplayBlocks })
                   })
                   setSaveStatus('Saved')
+                  if (project.google_doc_id) {
+                    await syncToGoogleDocs(screenplayBlocks, undefined, true)
+                  }
                 } catch(e) {
                   alert("Failed to save.")
                   setSaveStatus('Error')
@@ -435,6 +554,27 @@ export default function StudioClient({ project, initialBlocks = [] }: StudioClie
               className="flex items-center gap-1.5 rounded bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary hover:bg-primary/20 disabled:opacity-50"
             >
               {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} {saveStatus}
+            </button>
+            {project.google_doc_id && (
+              <button 
+                onClick={() => syncToGoogleDocs(screenplayBlocks, undefined, true)}
+                disabled={syncStatus === 'syncing'}
+                className="flex items-center gap-1.5 rounded border border-blue-500/30 bg-blue-500/10 px-2.5 py-1 text-xs font-medium text-blue-600 hover:bg-blue-500/20 dark:text-blue-400 disabled:opacity-50"
+                title="Push entire screenplay to Google Docs"
+              >
+                {syncStatus === 'syncing' ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
+                {syncStatus === 'syncing' ? 'Syncing...' : 'Sync to Docs'}
+              </button>
+            )}
+            <button 
+              id="translate-script"
+              onClick={translateScript}
+              disabled={isTranslating || isRecording}
+              className="flex items-center gap-1.5 rounded border border-purple-500/30 bg-purple-500/10 px-2.5 py-1 text-xs font-medium text-purple-600 hover:bg-purple-500/20 dark:text-purple-400 disabled:opacity-50"
+              title="Translate entire script between Malayalam and Kannada"
+            >
+              {isTranslating ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+              {isTranslating ? 'Translating...' : (language === 'malayalam' ? 'മല → ಕನ್ನಡ' : 'ಕನ್ನಡ → മല')}
             </button>
             <button 
               onClick={() => {
@@ -576,16 +716,92 @@ export default function StudioClient({ project, initialBlocks = [] }: StudioClie
           </div>
           
           <div className="shrink-0 border-t border-border p-4">
-            <h3 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Sync Status</h3>
-            {project.google_doc_id ? (
-              <div className="flex items-center gap-2 rounded-md bg-green-500/10 px-3 py-2 text-sm text-green-600 dark:text-green-400">
-                <CheckCircle2 size={16} />
-                Synced to Google Docs
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-xs font-semibold uppercase text-muted-foreground">Google Docs Sync</h3>
+              {project.google_doc_id && (
+                <button 
+                  onClick={() => syncToGoogleDocs(screenplayBlocks, undefined, true)}
+                  disabled={syncStatus === 'syncing'}
+                  className="text-[11px] font-medium text-primary hover:underline disabled:opacity-50 cursor-pointer"
+                >
+                  Sync All Now
+                </button>
+              )}
+            </div>
+
+            {syncStatus === 'token_expired' ? (
+              <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
+                <div className="flex items-center gap-2 font-medium">
+                  <AlertCircle size={15} />
+                  Google Token Expired
+                </div>
+                <p className="text-[11px] opacity-90 leading-tight">
+                  Your Google authorization has expired. Reconnect to resume syncing.
+                </p>
+                <a
+                  href={`/api/google/connect?return_to=/studio/${project.id}`}
+                  className="inline-flex w-full items-center justify-center rounded bg-destructive px-3 py-1.5 text-xs font-semibold text-destructive-foreground hover:bg-destructive/90 transition-colors shadow-sm"
+                >
+                  Reconnect Google Docs
+                </a>
+              </div>
+            ) : syncStatus === 'error' ? (
+              <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
+                <div className="flex items-center gap-2 font-medium">
+                  <AlertCircle size={15} />
+                  Sync Error
+                </div>
+                <p className="text-[11px] truncate leading-tight" title={syncErrorMessage}>
+                  {syncErrorMessage}
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => syncToGoogleDocs(screenplayBlocks, undefined, true)}
+                    className="flex-1 rounded bg-destructive/20 px-2 py-1 text-[11px] font-medium hover:bg-destructive/30 cursor-pointer"
+                  >
+                    Retry Sync
+                  </button>
+                  <a
+                    href={`/api/google/connect?return_to=/studio/${project.id}`}
+                    className="flex-1 text-center rounded bg-destructive/20 px-2 py-1 text-[11px] font-medium hover:bg-destructive/30"
+                  >
+                    Reconnect
+                  </a>
+                </div>
+              </div>
+            ) : syncStatus === 'syncing' ? (
+              <div className="flex items-center gap-2 rounded-md bg-blue-500/10 px-3 py-2 text-sm text-blue-600 dark:text-blue-400">
+                <Loader2 size={16} className="animate-spin" />
+                Syncing to Google Docs...
+              </div>
+            ) : project.google_doc_id ? (
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2 rounded-md bg-green-500/10 px-3 py-2 text-sm text-green-600 dark:text-green-400">
+                  <CheckCircle2 size={16} />
+                  Connected to Google Docs
+                </div>
+                {lastSyncedTime ? (
+                  <div className="text-[10px] text-muted-foreground px-1">
+                    Last synced at {lastSyncedTime}
+                  </div>
+                ) : (
+                  <div className="text-[10px] text-muted-foreground px-1">
+                    Ready to sync. Click &apos;Sync All Now&apos; to push.
+                  </div>
+                )}
               </div>
             ) : (
-              <div className="flex items-center gap-2 rounded-md bg-muted px-3 py-2 text-sm">
-                <AlertCircle size={16} className="text-yellow-500" />
-                Google Docs not connected
+              <div className="space-y-2 rounded-md bg-muted px-3 py-2.5 text-xs text-muted-foreground">
+                <div className="flex items-center gap-2">
+                  <AlertCircle size={15} className="text-yellow-500" />
+                  Google Docs not connected
+                </div>
+                <a
+                  href={`/api/google/connect?return_to=/studio/${project.id}`}
+                  className="inline-block text-[11px] font-medium text-primary hover:underline"
+                >
+                  Connect Google Account
+                </a>
               </div>
             )}
           </div>
