@@ -43,10 +43,35 @@ export async function signup(formData: FormData) {
 export async function guestLogin() {
   const supabase = await createClient()
 
-  const { error } = await supabase.auth.signInAnonymously()
+  // 1. Try standard anonymous sign in first
+  try {
+    const { data: anonData, error: anonError } = await supabase.auth.signInAnonymously()
+    if (!anonError && anonData?.session) {
+      revalidatePath('/', 'layout')
+      redirect('/dashboard')
+    }
+  } catch (err: any) {
+    if (err?.digest?.startsWith('NEXT_REDIRECT')) throw err
+  }
 
-  if (error) {
-    redirect(`/login?error=${encodeURIComponent(error.message)}`)
+  // 2. Seamless instant sign in using the provisioned free guest user
+  try {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: 'guest@scripter.app',
+      password: 'GuestPassword123!',
+    })
+
+    if (!error && data?.session) {
+      revalidatePath('/', 'layout')
+      redirect('/dashboard')
+    }
+    if (error) {
+      console.error('Guest login fallback error:', error)
+      redirect(`/login?error=${encodeURIComponent(error.message)}`)
+    }
+  } catch (err: any) {
+    if (err?.digest?.startsWith('NEXT_REDIRECT')) throw err
+    redirect(`/login?error=${encodeURIComponent(err.message)}`)
   }
 
   revalidatePath('/', 'layout')

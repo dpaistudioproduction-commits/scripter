@@ -37,7 +37,30 @@ export default async function LoginPage({
           </div>
         )}
 
-        <form className="mt-8 space-y-6">
+        {/* 1-Click Free Instant Access Form - Completely Independent (No email required) */}
+        <form action={guestLogin} className="mt-8">
+          <button
+            type="submit"
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3.5 px-4 text-base font-semibold text-primary-foreground shadow-md transition-all hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
+          >
+            <Sparkles className="h-5 w-5" />
+            Continue as Guest (Free Instant Access)
+          </button>
+          <p className="mt-2 text-center text-xs text-muted-foreground">
+            No email address or password needed to explore and write scripts.
+          </p>
+        </form>
+
+        <div className="relative my-6">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-border" />
+          </div>
+          <div className="relative flex justify-center text-xs uppercase">
+            <span className="bg-card px-2 text-muted-foreground">Or sign in with email</span>
+          </div>
+        </div>
+
+        <form className="space-y-6">
           <div className="space-y-4">
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-foreground">
@@ -69,35 +92,17 @@ export default async function LoginPage({
           <div className="flex flex-col space-y-3">
             <button
               formAction={login}
-              className="flex w-full justify-center rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
+              className="flex w-full justify-center rounded-lg border border-input bg-background px-4 py-2.5 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
             >
-              Sign in
+              Sign in with Email
             </button>
             <button
               formAction={signup}
-              className="flex w-full justify-center rounded-lg border border-input bg-background px-4 py-2.5 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
+              className="flex w-full justify-center rounded-lg border border-input bg-background px-4 py-2.5 text-sm font-medium text-muted-foreground shadow-sm transition-colors hover:bg-muted focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
             >
-              Sign up
+              Create an Account
             </button>
           </div>
-
-          <div className="relative my-4">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-border" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-card px-2 text-muted-foreground">Or</span>
-            </div>
-          </div>
-
-          <button
-            formAction={guestLogin}
-            type="submit"
-            className="flex w-full items-center justify-center gap-2 rounded-lg border border-primary/30 bg-primary/10 px-4 py-2.5 text-sm font-medium text-primary shadow-sm transition-colors hover:bg-primary/20"
-          >
-            <Sparkles size={16} />
-            Continue as Guest (Free Instant Access)
-          </button>
         </form>
       </div>
     </div>
