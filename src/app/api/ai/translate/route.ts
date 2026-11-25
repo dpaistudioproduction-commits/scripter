@@ -59,7 +59,17 @@ ${JSON.stringify(input)}
       }
     }
     if (!response) {
-      const status = lastError?.status === 429 ? 429 : lastError?.status === 402 ? 402 : 500
+      if (lastError?.status === 402 || lastError?.message?.includes('402')) {
+        return NextResponse.json({ 
+          error: 'Your Google Cloud Project prepayment credits are depleted. Please top up your billing at ai.google.dev or create a Free Tier API key at aistudio.google.com.' 
+        }, { status: 402 })
+      }
+      if (lastError?.status === 429 || lastError?.message?.includes('429')) {
+        return NextResponse.json({ 
+          error: 'AI Quota Exceeded. You have hit the Google AI rate limits for today.' 
+        }, { status: 429 })
+      }
+      const status = lastError?.status || 500
       return NextResponse.json({ error: lastError?.message || 'All AI models failed' }, { status })
     }
 
