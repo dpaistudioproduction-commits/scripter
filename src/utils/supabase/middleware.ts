@@ -38,9 +38,18 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser()
 
   const publicRoutes = ['/', '/login', '/signup', '/auth/callback']
-  const isPublicRoute = publicRoutes.some((route) => request.nextUrl.pathname === route || request.nextUrl.pathname.startsWith('/auth/callback'))
+  const isPublicRoute = publicRoutes.some((route) => 
+    request.nextUrl.pathname === route || 
+    request.nextUrl.pathname.startsWith('/auth/callback') ||
+    request.nextUrl.pathname.startsWith('/api/ai')
+  )
 
   if (!user && !isPublicRoute) {
+    // For API routes, return 401 JSON instead of redirecting POST bodies to HTML login page
+    if (request.nextUrl.pathname.startsWith('/api/')) {
+      return NextResponse.json({ error: 'Unauthorized. Please sign in.' }, { status: 401 })
+    }
+
     // no user, potentially respond by redirecting the user to the login page
     const url = request.nextUrl.clone()
     url.pathname = '/login'
