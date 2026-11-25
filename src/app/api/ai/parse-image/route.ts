@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server'
 import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from '@google/genai'
 import { createClient } from '@/utils/supabase/server'
 
+export const maxDuration = 60
+export const dynamic = 'force-dynamic'
+
 export async function POST(req: Request) {
   try {
     const { imageBase64, mimeType = 'image/jpeg', language = 'malayalam' } = await req.json()
@@ -136,6 +139,10 @@ Format: [{ "type": "action", "content": "${exampleLine}" }]
     return NextResponse.json({ blocks })
   } catch (error: any) {
     console.error('Parse Image Route Error:', error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    const isNetworkError = error?.cause?.code === 'ENOTFOUND' || String(error?.cause || '').includes('ENOTFOUND') || error?.message?.includes('ENOTFOUND')
+    const msg = isNetworkError
+      ? 'Internet connection error: Could not reach Google AI services (DNS/offline). Please check your internet connection.'
+      : (error.message || 'Failed to process document')
+    return NextResponse.json({ error: msg }, { status: 500 })
   }
 }

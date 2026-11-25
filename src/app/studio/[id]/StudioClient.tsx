@@ -296,9 +296,9 @@ export default function StudioClient({ project, initialBlocks = [] }: StudioClie
               setScreenplayBlocks(prev => [...prev, ...blocksWithOriginal])
               syncToGoogleDocs(blocksWithOriginal, sceneBlock?.content)
             }
-          } catch (err) {
+          } catch (err: any) {
             console.error(err)
-            alert(`Failed to process PDF "${file.name}"`)
+            alert(`Failed to process PDF "${file.name}": ` + (err?.message || 'Network connection error or file too large'))
           }
           continue
         }
