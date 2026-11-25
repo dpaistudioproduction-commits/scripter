@@ -1,7 +1,15 @@
-import { login, signup } from './actions'
-import { Film } from 'lucide-react'
+import { login, signup, guestLogin } from './actions'
+import { Film, Sparkles } from 'lucide-react'
 
-export default function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ message?: string; error?: string; success?: string }>
+}) {
+  const params = await searchParams
+  const errorMessage = params.error || params.message
+  const successMessage = params.success
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="w-full max-w-md space-y-8 rounded-2xl border border-border bg-card p-10 shadow-sm">
@@ -16,6 +24,19 @@ export default function LoginPage() {
             Sign in to access your AI Malayalam Voice-to-Screenplay Studio.
           </p>
         </div>
+
+        {errorMessage && (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-center text-sm text-destructive">
+            {errorMessage}
+          </div>
+        )}
+
+        {successMessage && (
+          <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-center text-sm text-emerald-600 dark:text-emerald-400">
+            {successMessage === 'Google_Connected' ? 'Google account connected successfully!' : successMessage}
+          </div>
+        )}
+
         <form className="mt-8 space-y-6">
           <div className="space-y-4">
             <div>
@@ -59,6 +80,24 @@ export default function LoginPage() {
               Sign up
             </button>
           </div>
+
+          <div className="relative my-4">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-border" />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-card px-2 text-muted-foreground">Or</span>
+            </div>
+          </div>
+
+          <button
+            formAction={guestLogin}
+            type="submit"
+            className="flex w-full items-center justify-center gap-2 rounded-lg border border-primary/30 bg-primary/10 px-4 py-2.5 text-sm font-medium text-primary shadow-sm transition-colors hover:bg-primary/20"
+          >
+            <Sparkles size={16} />
+            Continue as Guest (Free Instant Access)
+          </button>
         </form>
       </div>
     </div>
